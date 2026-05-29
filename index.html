@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/114/114668.png">
+    <title>IoT Food Saver - Smart Waste Management</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* --- Clean SaaS UI: Light Green & Golden Yellow Theme --- */
+        :root {
+            --primary: #84cc16; 
+            --primary-hover: #65a30d; 
+            --success: #84cc16; 
+            --warning: #facc15; 
+            --warning-hover: #eab308;
+            --danger: #ef4444;
+            --bg-color: #f7fee7; 
+            --card-bg: #ffffff;
+            --text-main: #3f6212; 
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        nav {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            padding: 15px 30px;
+            display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0; z-index: 100;
+            box-shadow: 0 2px 10px rgba(132, 204, 22, 0.05);
+        }
+        .nav-brand { font-weight: 700; font-size: 1.3rem; color: var(--text-main); display: flex; align-items: center; gap: 10px;}
+        .nav-brand i { color: var(--primary); font-size: 1.6rem; }
+        .nav-brand span { font-size: 0.8rem; color: var(--text-muted); font-weight: 400; display: block;}
+        
+        .nav-status { background: #ecfccb; color: var(--primary-hover); padding: 5px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;}
+        .nav-status.offline { background: #fef2f2; color: var(--danger); }
+
+        .auth-controls { display: flex; align-items: center; gap: 15px; }
+        .auth-controls span { font-size: 0.9rem; color: var(--text-muted); }
+        .btn-outline { border: 1px solid var(--primary); background: transparent; padding: 6px 15px; border-radius: 6px; cursor: pointer; color: var(--primary-hover); font-weight: 600; transition: 0.2s;}
+        .btn-outline:hover { background: #ecfccb; }
+
+        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+        
+        .app-tabs { display: flex; gap: 10px; margin-bottom: 20px; background: white; padding: 5px; border-radius: 8px; width: fit-content; border: 1px solid var(--border);}
+        .app-tab { padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; color: var(--text-muted); transition: 0.2s; display: flex; align-items: center; gap: 8px;}
+        .app-tab:hover { background: #ecfccb; color: var(--primary-hover); }
+        .app-tab.active { background: var(--primary); color: white; }
+
+        .view-section { display: none; animation: fadeIn 0.3s ease; }
+        .view-section.active { display: block; }
+        .hidden { display: none !important; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 25px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(132, 204, 22, 0.05); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card-title { margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--text-main); }
+        .card-subtitle { color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;}
+        
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 25px;}
+        .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 25px;}
+        
+        .metric-card { padding: 25px; border-radius: 12px; background: #fff; border: 1px solid var(--border); }
+        .metric-title { font-size: 0.95rem; color: var(--text-muted); display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-weight: 500;}
+        .metric-value { font-size: 2.2rem; font-weight: 700; color: var(--text-main); }
+        
+        .m-danger .metric-title i { color: var(--danger); }
+        .m-danger .metric-value { color: var(--danger); }
+        .m-success .metric-title i { color: var(--success); }
+        .m-success .metric-value { color: var(--success); }
+        .m-primary .metric-title i { color: var(--primary); }
+        .m-primary .metric-value { color: var(--primary); }
+        .m-warning .metric-title i { color: var(--warning); }
+        .m-warning .metric-value { color: var(--warning); }
+
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 15px; }
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        .input-group label { font-size: 0.85rem; color: var(--text-muted); font-weight: 500;}
+        .input-group input, .input-group select { padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; color: var(--text-main); outline: none;}
+        .input-group input:focus, .input-group select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(132, 204, 22, 0.2); }
+
+        .btn { padding: 12px 24px; border-radius: 8px; border: none; font-weight: 600; font-size: 1.05rem; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 10px;}
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); transform: translateY(-2px); }
+        .btn-warning { background: var(--warning); color: #422006; }
+        .btn-warning:hover { background: var(--warning-hover); transform: translateY(-2px); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca;}
+
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { padding: 12px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-size: 0.85rem; font-weight: 600;}
+        td { padding: 12px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+        .badge-spoiled { background: #fef2f2; color: var(--danger); }
+        .badge-fresh { background: #ecfccb; color: var(--primary-hover); }
+
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+        .toast { 
+            background: white; border-left: 5px solid var(--primary); padding: 15px 20px; 
+            border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); display: flex; 
+            align-items: center; gap: 12px; color: var(--text-main); font-weight: 500;
+            animation: slideIn 0.3s ease forwards, fadeOut 0.3s ease 3.5s forwards;
+        }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(120%); opacity: 0; } }
+
+        .large-obs-card { padding: 40px; border-left: 8px solid var(--primary); }
+        .large-obs-card .card-title { font-size: 1.8rem; margin-bottom: 10px;}
+        .large-obs-card .card-subtitle { font-size: 1.1rem; margin-bottom: 25px;}
+        .large-result-box { margin-top: 25px; padding: 25px; background: #fefce8; border-radius: 12px; border-left: 6px solid var(--warning); font-size: 1.3rem; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <div class="nav-brand">
+            <i class="fas fa-leaf"></i>
+            <div>
+                IoT Food Saver
+                <span>Smart Waste Management System</span>
+            </div>
+        </div>
+        <div class="auth-controls">
+            <div id="db-status" class="nav-status offline"><i class="fas fa-leaf"></i> Connecting...</div>
+            <span id="user-email" class="hidden">user@domain.com</span>
+            <button id="nav-login-btn" class="btn-outline" onclick="openLoginModal()">Admin Sign In</button>
+            <button id="nav-logout-btn" class="btn-outline hidden" onclick="handleLogout()">Sign Out</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        
+        <div class="app-tabs">
+            <div class="app-tab active" onclick="switchTab('dashboard-view', this)"><i class="fas fa-chart-line"></i> Dashboard</div>
+            <div class="app-tab" onclick="switchTab('history-view', this)"><i class="fas fa-history"></i> History</div>
+            
+            <div id="tab-ai" class="app-tab hidden" style="background: var(--primary); color: white;" onclick="switchTab('ai-view', this)"><i class="fas fa-brain"></i> AI Learning</div>
+        </div>
+
+        <div id="dashboard-view" class="view-section active">
+            
+            <div class="grid-3">
+                <div class="metric-card">
+                    <div class="metric-title">Live Temperature</div>
+                    <div class="metric-value"><span id="dash-temp">--</span>°C</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Live Humidity</div>
+                    <div class="metric-value"><span id="dash-hum">--</span>%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">Live Gas (VOC)</div>
+                    <div class="metric-value"><span id="dash-gas">--</span> ppm</div>
+                </div>
+            </div>
+
+            <div class="card large-obs-card">
+                <div>
+                    <h2 class="card-title"><i class="fas fa-search-location"></i> Public Observation Station</h2>
+                    <div class="card-subtitle">Anyone can run a manual scan or AI check.</div>
+                </div>
+                
+                <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                    <button class="btn btn-primary" onclick="runObservation()"><i class="fas fa-eye"></i> Observation Scan</button>
+                    <button class="btn btn-warning" onclick="runDetect()"><i class="fas fa-robot"></i> AI Detect Spoilage</button>
+                </div>
+                
+                <div id="public-result" class="hidden large-result-box"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title"><i class="fas fa-video"></i> Continuous Monitoring</h2>
+                        <div class="card-subtitle">System automatically tracks thresholds and logs spoilage.</div>
+                    </div>
+                    <button class="btn btn-primary" style="font-size:1rem; padding: 10px 18px;" id="start-cont-btn" onclick="startContinuousMode()">Start Monitoring</button>
+                    <button class="btn btn-danger hidden" style="font-size:1rem; padding: 10px 18px;" id="stop-cont-btn" onclick="stopContinuousMode()">Stop Monitoring</button>
+                </div>
+                <h3 id="cont-status" style="color: var(--text-muted); margin: 0;">⚪ Status: IDLE</h3>
+            </div>
+            
+            <div class="card">
+                <h2 class="card-title">Live Telemetry Graph</h2>
+                <div style="height: 350px; width: 100%; margin-top: 15px;"><canvas id="sensorChart"></canvas></div>
+            </div>
+        </div>
+
+        <div id="history-view" class="view-section">
+            <div class="card">
+                <h2 class="card-title">Spoilage History Logs</h2>
+                <div class="card-subtitle">Last 100 recorded spoilage events from continuous monitoring.</div>
+                
+                <div style="overflow-x: auto; margin-top: 20px;">
+                    <table id="history-table">
+                        <thead>
+                            <tr>
+                                <th>Date & Time</th>
+                                <th>Temp (°C)</th>
+                                <th>Humidity (%)</th>
+                                <th>Gas (ppm)</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-body">
+                            <tr><td colspan="5" style="text-align:center; color:#999;">Loading history...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="ai-view" class="view-section">
+            <div class="grid-4">
+                <div class="metric-card m-warning" style="background: #fefce8; border-color: #fef08a;">
+                    <div class="metric-title"><i class="fas fa-bullseye"></i> AI Threshold Gas</div>
+                    <div class="metric-value" id="ai-stat-gas">--</div>
+                </div>
+                <div class="metric-card m-primary" style="background: #f7fee7; border-color: #d9f99d;">
+                    <div class="metric-title"><i class="fas fa-database"></i> Training Samples</div>
+                    <div class="metric-value" id="ai-stat-samples">0</div>
+                </div>
+                <div class="metric-card m-success" style="background: #ecfccb; border-color: #bef264;">
+                    <div class="metric-title"><i class="fas fa-check-circle"></i> Fresh Samples</div>
+                    <div class="metric-value" id="ai-stat-fresh">0</div>
+                </div>
+                <div class="metric-card m-danger">
+                    <div class="metric-title"><i class="fas fa-exclamation-triangle"></i> Spoiled Samples</div>
+                    <div class="metric-value" id="ai-stat-spoiled">0</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title">Manual Sample Entry</h2>
+                        <div class="card-subtitle">Auto-generates labeled samples based on spoilage patterns and trains the model.</div>
+                    </div>
+                    <button class="btn btn-outline" style="font-size:0.9rem; padding: 8px 15px;" onclick="fillFormWithSensorData()"><i class="fas fa-download"></i> Get Live Sensor Data</button>
+                </div>
+
+                <div class="form-grid">
+                    <div class="input-group">
+                        <label>Temp (°C)</label>
+                        <input type="number" id="m-temp" value="40" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label>Humidity (%)</label>
+                        <input type="number" id="m-hum" value="60" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label>Gas (ppm)</label>
+                        <input type="number" id="m-gas" value="40">
+                    </div>
+                </div>
+                
+                <div class="form-grid" style="grid-template-columns: 2fr 1fr 1fr;">
+                    <div class="input-group">
+                        <label>Food Item</label>
+                        <input type="text" id="m-food" placeholder="e.g. Chicken Breast">
+                    </div>
+                    <div class="input-group">
+                        <label>Condition</label>
+                        <select id="m-condition">
+                            <option value="Fresh">Fresh</option>
+                            <option value="Spoiled">Spoiled</option>
+                        </select>
+                    </div>
+                    <div class="input-group" style="justify-content: flex-end;">
+                        <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="addManualSample()">Add Sample</button>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px; display: flex; gap: 10px; border-top: 1px solid var(--border); padding-top: 20px;">
+                    <button class="btn btn-warning" onclick="retrainModel()"><i class="fas fa-sync"></i> Retrain Model</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <div id="login-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2 style="margin-top:0; color:var(--text-main);">Admin Sign In</h2>
+            <p style="color:var(--text-muted); font-size:0.9rem;">Sign in to access AI training models.</p>
+            
+            <div class="input-group" style="margin-bottom:15px;">
+                <label>Email Address</label>
+                <input type="email" id="email" placeholder="admin@domain.com">
+            </div>
+            <div class="input-group" style="margin-bottom:20px;">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="••••••••">
+            </div>
+            
+            <button class="btn btn-primary" style="width: 100%; justify-content: center; margin-bottom: 10px;" onclick="handleLogin()">Sign In</button>
+            <button class="btn btn-outline" style="width: 100%; justify-content: center;" onclick="closeLoginModal()">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Custom Toast System ---
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            
+            let icon = type === 'warning' ? 'fa-exclamation-circle' : 'fa-check-circle';
+            let color = type === 'warning' ? 'var(--warning)' : 'var(--primary)';
+            toast.style.borderLeftColor = color;
+            
+            toast.innerHTML = `<i class="fas ${icon}" style="color: ${color}; font-size: 1.2rem;"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3800);
+        }
+
+        // --- 1. UI Navigation & Tab Switching ---
+        function switchTab(viewId, tabElement) {
+            document.querySelectorAll('.app-tab').forEach(t => t.classList.remove('active'));
+            tabElement.classList.add('active');
+            
+            document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+        }
+
+        // --- 2. Firebase Configuration ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAs3CAJw_X1hE02EE3HiRCE-yGLRWGpQ70",
+            authDomain: "food-spoiled-detector-1.firebaseapp.com",
+            databaseURL: "https://food-spoiled-detector-1-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "food-spoiled-detector-1",
+            storageBucket: "food-spoiled-detector-1.firebasestorage.app",
+            messagingSenderId: "847754129699",
+            appId: "1:847754129699:web:8f10bfba090c6806481c96"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.database();
+
+        let myChart;
+        let continuousInterval;
+        let latestSensorData = { temp: 0, hum: 0, gas: 0, status: "Waiting..." };
+        let aiState = { thresholds: { gas_threshold: 400, temp_threshold: 30 } };
+
+        listenToLiveSensors();
+        listenToAIState();
+        loadHistoryData();
+        loadTrainingStats();
+
+        // --- 3. Authentication ---
+        function openLoginModal() { document.getElementById('login-modal').classList.remove('hidden'); }
+        function closeLoginModal() { document.getElementById('login-modal').classList.add('hidden'); }
+        
+        function handleLogin() {
+            auth.signInWithEmailAndPassword(document.getElementById('email').value, document.getElementById('password').value)
+                .then(()=> {
+                    closeLoginModal();
+                    showToast("Successfully logged in as Admin.");
+                }).catch(e => alert(e.message));
+        }
+        
+        function handleLogout() { 
+            auth.signOut(); 
+            switchTab('dashboard-view', document.querySelector('.app-tab'));
+            showToast("Logged out successfully.");
+        }
+
+        auth.onAuthStateChanged(user => {
+            if(user) {
+                document.getElementById('nav-login-btn').classList.add('hidden');
+                document.getElementById('nav-logout-btn').classList.remove('hidden');
+                document.getElementById('tab-ai').classList.remove('hidden');
+                document.getElementById('user-email').classList.remove('hidden');
+                document.getElementById('user-email').innerText = user.email;
+                initChart();
+            } else {
+                document.getElementById('nav-login-btn').classList.remove('hidden');
+                document.getElementById('nav-logout-btn').classList.add('hidden');
+                document.getElementById('tab-ai').classList.add('hidden');
+                document.getElementById('user-email').classList.add('hidden');
+                initChart(); 
+            }
+        });
+
+        // --- 4. Live Sensor Data (UPDATED) ---
+        function listenToLiveSensors() {
+            db.ref('sensor').on('value', snapshot => {
+                const dbStatus = document.getElementById('db-status');
+                if(snapshot.exists()){
+                    // Changed fa-wifi to fa-leaf here
+                    dbStatus.innerHTML = '<i class="fas fa-leaf"></i> Connected';
+                    dbStatus.className = 'nav-status'; 
+                    
+                    const rawData = snapshot.val();
+                    latestSensorData = {
+                        temp: Number(rawData.temperature !== undefined ? rawData.temperature : (rawData.temp || 0)),
+                        hum: Number(rawData.humidity !== undefined ? rawData.humidity : (rawData.hum || 0)),
+                        gas: Number(rawData.gas || 0),
+                        status: rawData.status || "Unknown"
+                    };
+                    
+                    document.getElementById('dash-temp').innerText = latestSensorData.temp;
+                    document.getElementById('dash-hum').innerText = latestSensorData.hum;
+                    document.getElementById('dash-gas').innerText = latestSensorData.gas;
+
+                    updateChart(latestSensorData.temp, latestSensorData.gas);
+                } else {
+                    dbStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> Offline';
+                    dbStatus.className = 'nav-status offline';
+                }
+            });
+        }
+
+        // --- UPDATED AI State Listener ---
+        function listenToAIState() {
+            db.ref('ai_learning').on('value', snapshot => {
+                if(snapshot.exists()) {
+                    const data = snapshot.val();
+                    // Defensive check: Only update if thresholds actually exist in the DB
+                    if(data && data.thresholds) {
+                        aiState = data;
+                        document.getElementById('ai-stat-gas').innerText = (aiState.thresholds.gas_threshold).toFixed(0);
+                    }
+                }
+            });
+        }
+
+        // --- 5. Observation & Detection (UPDATED) ---
+        function runObservation() {
+            const res = document.getElementById('public-result');
+            res.classList.remove('hidden');
+            res.style.borderLeftColor = "var(--primary)";
+            res.innerHTML = `<span style="font-size: 1.4rem; font-weight: bold; color: var(--text-main);"><i class="fas fa-eye" style="color: var(--primary);"></i> Live Observation Snapshot</span><br><br>
+                             <div style="font-size: 1.2rem; color: #444;">Temp: <b>${latestSensorData.temp}°C</b> &nbsp;|&nbsp; Humidity: <b>${latestSensorData.hum}%</b> &nbsp;|&nbsp; Gas: <b>${latestSensorData.gas} ppm</b></div><br>
+                             <span style="font-size: 1rem; color: var(--text-muted);">Hardware currently reading status as: <b style="color:var(--primary);">${latestSensorData.status}</b></span>`;
+                             
+            db.ref('public_observations').push({
+                temperature: latestSensorData.temp,
+                humidity: latestSensorData.hum,
+                gas: latestSensorData.gas,
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            });
+            
+            showToast("Observation scan recorded.");
+        }
+
+        function runDetect() {
+            const res = document.getElementById('public-result');
+            res.classList.remove('hidden');
+            
+            let status = "FRESH & SAFE";
+            let color = "var(--primary)";
+
+            // Failsafe: If DB hasn't loaded yet, default to these safe numbers
+            const gasLimit = (aiState && aiState.thresholds && aiState.thresholds.gas_threshold) ? aiState.thresholds.gas_threshold : 400;
+            const tempLimit = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold) ? aiState.thresholds.temp_threshold : 30;
+
+            if(latestSensorData.gas > gasLimit || latestSensorData.temp > tempLimit) {
+                status = "SPOILED / ROTTING!";
+                color = "var(--danger)";
+                db.ref('sensor').update({ status: "Spoiled & Harmful" });
+                showToast("Spoilage detected by AI!", "warning");
+            } else {
+                db.ref('sensor').update({ status: "Fresh " });
+                showToast("Food analyzed as Fresh.");
+            }
+
+            res.style.borderLeftColor = color;
+            res.innerHTML = `
+                <div style="color: ${color}; font-weight: bold; font-size: 1.5rem; margin-bottom: 10px;">🤖 AI VERDICT: ${status}</div>
+                <div style="color: #444; font-size: 1.2rem;">Metrics evaluated at: Temp <b>${latestSensorData.temp}°C</b>, Gas <b>${latestSensorData.gas} ppm</b></div>
+                <div style="font-size: 1rem; color: var(--text-muted); margin-top: 10px;">
+                    (Evaluated against learned AI limits: Gas Limit ${gasLimit.toFixed(0)} | Temp Limit ${tempLimit.toFixed(1)})
+                </div>
+            `;
+        }
+
+        // --- 6. Continuous Monitoring & History ---
+        function startContinuousMode() {
+            document.getElementById('start-cont-btn').classList.add('hidden');
+            document.getElementById('stop-cont-btn').classList.remove('hidden');
+            document.getElementById('cont-status').innerHTML = "🟢 Status: ACTIVE - Scanning thresholds...";
+            
+            showToast("Continuous Monitoring Activated");
+            
+            continuousInterval = setInterval(() => {
+                const gasLimit = (aiState && aiState.thresholds && aiState.thresholds.gas_threshold) ? aiState.thresholds.gas_threshold : 400;
+                const tempLimit = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold) ? aiState.thresholds.temp_threshold : 30;
+
+                if (latestSensorData.gas > gasLimit || latestSensorData.temp > tempLimit) {
+                    clearInterval(continuousInterval);
+                    document.getElementById('cont-status').innerHTML = "🔴 ALERT: SPOILAGE DETECTED!";
+                    document.getElementById('start-cont-btn').classList.remove('hidden');
+                    document.getElementById('stop-cont-btn').classList.add('hidden');
+                    
+                    db.ref('sensor').update({ status: "Spoiled" });
+                    
+                    db.ref('spoiled_history').push({
+                        temp: latestSensorData.temp,
+                        hum: latestSensorData.hum,
+                        gas: latestSensorData.gas,
+                        status: "Spoiled",
+                        timestamp: new Date().toLocaleString()
+                    });
+                    
+                    showToast("WARNING: Spoilage Detected! Logged to history.", "warning");
+                }
+            }, 3000);
+        }
+
+        function stopContinuousMode() {
+            clearInterval(continuousInterval);
+            document.getElementById('start-cont-btn').classList.remove('hidden');
+            document.getElementById('stop-cont-btn').classList.add('hidden');
+            document.getElementById('cont-status').innerHTML = "⚪ Status: IDLE";
+            showToast("Continuous Monitoring Stopped");
+        }
+
+        function loadHistoryData() {
+            db.ref('spoiled_history').limitToLast(100).on('value', snapshot => {
+                const tbody = document.getElementById('history-body');
+                tbody.innerHTML = '';
+                
+                if(snapshot.exists()) {
+                    const records = [];
+                    snapshot.forEach(child => { records.unshift(child.val()); });
+                    
+                    records.forEach(data => {
+                        tbody.innerHTML += `
+                            <tr>
+                                <td>${data.timestamp}</td>
+                                <td>${data.temp}</td>
+                                <td>${data.hum}</td>
+                                <td>${data.gas}</td>
+                                <td><span class="badge badge-spoiled">Spoiled</span></td>
+                            </tr>
+                        `;
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#999;">No spoilage history found.</td></tr>';
+                }
+            });
+        }
+
+        // --- 7. AI Learning & Manual Entry ---
+        function loadTrainingStats() {
+            db.ref('training_data').on('value', snapshot => {
+                let total = 0, fresh = 0, spoiled = 0;
+                if(snapshot.exists()){
+                    snapshot.forEach(child => {
+                        total++;
+                        if(child.val().condition === 'Fresh') fresh++;
+                        if(child.val().condition === 'Spoiled') spoiled++;
+                    });
+                }
+                document.getElementById('ai-stat-samples').innerText = total;
+                document.getElementById('ai-stat-fresh').innerText = fresh;
+                document.getElementById('ai-stat-spoiled').innerText = spoiled;
+            });
+        }
+
+        function fillFormWithSensorData() {
+            if(latestSensorData.temp === 0) { showToast("No live sensor data found!", "warning"); return; }
+            document.getElementById('m-temp').value = latestSensorData.temp;
+            document.getElementById('m-hum').value = latestSensorData.hum;
+            document.getElementById('m-gas').value = latestSensorData.gas;
+            showToast("Live data imported to form.");
+        }
+
+        function addManualSample() {
+            const temp = parseFloat(document.getElementById('m-temp').value);
+            const hum = parseFloat(document.getElementById('m-hum').value);
+            const gas = parseFloat(document.getElementById('m-gas').value);
+            const food = document.getElementById('m-food').value || "Unknown";
+            const condition = document.getElementById('m-condition').value;
+
+            if(isNaN(temp) || isNaN(hum) || isNaN(gas)) { showToast("Please fill all numeric fields!", "warning"); return; }
+
+            db.ref('training_data').push({
+                temp: temp, hum: hum, gas: gas, foodItem: food, condition: condition, 
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            }).then(() => {
+                showToast("Sample successfully saved to Firebase!");
+                document.getElementById('m-temp').value = '40';
+                document.getElementById('m-hum').value = '60';
+                document.getElementById('m-gas').value = '40';
+                document.getElementById('m-food').value = '';
+            }).catch((err) => {
+                showToast("Error saving: " + err.message, "warning");
+            });
+        }
+
+        function retrainModel() {
+            db.ref('training_data').once('value').then(snapshot => {
+                if(!snapshot.exists()) { showToast("No data to train on!", "warning"); return; }
+                
+                let sumGas = 0, sumTemp = 0, count = 0;
+                snapshot.forEach(child => {
+                    let d = child.val();
+                    if(d.condition === 'Fresh') {
+                        sumGas += d.gas;
+                        sumTemp += d.temp;
+                        count++;
+                    }
+                });
+
+                if(count === 0) { showToast("Need at least one 'Fresh' sample to establish a baseline!", "warning"); return; }
+
+                let avgGas = sumGas / count;
+                let avgTemp = sumTemp / count;
+                
+                let newGasLimit = Math.max(300, avgGas * 1.5);
+                let newTempLimit = Math.max(28, avgTemp * 1.2);
+
+                db.ref('ai_learning/thresholds').update({
+                    gas_threshold: newGasLimit,
+                    temp_threshold: newTempLimit
+                }).then(() => {
+                    showToast(`AI Model Retrained! New Limits -> Gas: ${newGasLimit.toFixed(0)} | Temp: ${newTempLimit.toFixed(1)}`);
+                });
+            });
+        }
+
+        // --- 8. Chart.js ---
+        function initChart() {
+            const ctx = document.getElementById('sensorChart').getContext('2d');
+            if (myChart) myChart.destroy();
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Temp (°C)', borderColor: '#eab308', data: [] }, { label: 'Gas (ppm)', borderColor: '#84cc16', data: [] }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+        
+        function updateChart(temp, gas) {
+            if (!myChart) return;
+            const time = new Date().toLocaleTimeString();
+            if (myChart.data.labels.length > 12) { myChart.data.labels.shift(); myChart.data.datasets.forEach(d => d.data.shift()); }
+            myChart.data.labels.push(time);
+            myChart.data.datasets[0].data.push(temp);
+            myChart.data.datasets[1].data.push(gas);
+            myChart.update();
+        }
+    </script>
+</body>
+</html>
