@@ -207,8 +207,15 @@
 
         <div id="history-view" class="view-section">
             <div class="card">
-                <h2 class="card-title">Spoilage History Logs</h2>
-                <div class="card-subtitle">Last 100 recorded spoilage events from continuous monitoring.</div>
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title">Spoilage History Logs</h2>
+                        <div class="card-subtitle">Local history of sensor readings (up to 50 records).</div>
+                    </div>
+                    <button class="btn btn-outline" id="toggle-spoiled-btn" onclick="toggleSpoiledView()" style="font-size: 0.9rem; padding: 8px 15px;">
+                        <i class="fas fa-filter"></i> Show Spoiled Only
+                    </button>
+                </div>
                 
                 <div style="overflow-x: auto; margin-top: 20px;">
                     <table id="history-table">
@@ -222,7 +229,7 @@
                             </tr>
                         </thead>
                         <tbody id="history-body">
-                            <tr><td colspan="5" style="text-align:center; color:#999;">Loading history...</td></tr>
+                            <tr><td colspan="5" style="text-align:center; color:#999;">Waiting for sensor data...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -361,11 +368,20 @@
         let myChart;
         let continuousInterval;
         let latestSensorData = { temp: 0, hum: 0, gas: 0, status: "Waiting..." };
-        let aiState = { thresholds: { gas_threshold: 400, temp_threshold: 30 } };
+        
+        // UPDATED: Now matches your exact Firebase DB structure
+        let aiState = { thresholds: { gas_threshold: 150, temp_threshold_min: 25, temp_threshold_max: 35 } };
+
+        // LOCAL HISTORY VARIABLES
+        const MAX_HISTORY = 50;
+        let localHistory = [];
+        const MAX_SPOILED_HISTORY = 50;
+        let spoiledHistory = [];
+        let showingOnlySpoiled = false;
 
         listenToLiveSensors();
         listenToAIState();
-        loadHistoryData();
+        setInterval(logToLocalHistory, 5000); 
         loadTrainingStats();
 
         // --- 3. Authentication ---
@@ -403,12 +419,11 @@
             }
         });
 
-        // --- 4. Live Sensor Data (UPDATED) ---
+        // --- 4. Live Sensor Data ---
         function listenToLiveSensors() {
             db.ref('sensor').on('value', snapshot => {
                 const dbStatus = document.getElementById('db-status');
                 if(snapshot.exists()){
-                    // Changed fa-wifi to fa-leaf here
                     dbStatus.innerHTML = '<i class="fas fa-leaf"></i> Connected';
                     dbStatus.className = 'nav-status'; 
                     
@@ -432,12 +447,11 @@
             });
         }
 
-        // --- UPDATED AI State Listener ---
+        // --- AI State Listener ---
         function listenToAIState() {
             db.ref('ai_learning').on('value', snapshot => {
                 if(snapshot.exists()) {
                     const data = snapshot.val();
-                    // Defensive check: Only update if thresholds actually exist in the DB
                     if(data && data.thresholds) {
                         aiState = data;
                         document.getElementById('ai-stat-gas').innerText = (aiState.thresholds.gas_threshold).toFixed(0);
@@ -446,7 +460,7 @@
             });
         }
 
-        // --- 5. Observation & Detection (UPDATED) ---
+        // --- 5. Observation & Detection ---
         function runObservation() {
             const res = document.getElementById('public-result');
             res.classList.remove('hidden');
@@ -472,11 +486,12 @@
             let status = "FRESH & SAFE";
             let color = "var(--primary)";
 
-            // Failsafe: If DB hasn't loaded yet, default to these safe numbers
-            const gasLimit = (aiState && aiState.thresholds && aiState.thresholds.gas_threshold) ? aiState.thresholds.gas_threshold : 400;
-            const tempLimit = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold) ? aiState.thresholds.temp_threshold : 30;
+            // UPDATED: Now fetches the exact database variables
+            const gasLimit = (aiState && aiState.thresholds && aiState.thresholds.gas_threshold) ? aiState.thresholds.gas_threshold : 150;
+            const tempMin = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold_min) ? aiState.thresholds.temp_threshold_min : 25;
+            const tempMax = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold_max) ? aiState.thresholds.temp_threshold_max : 35;
 
-            if(latestSensorData.gas > gasLimit || latestSensorData.temp > tempLimit) {
+            if(latestSensorData.gas > gasLimit || latestSensorData.temp < tempMin || latestSensorData.temp > tempMax) {
                 status = "SPOILED / ROTTING!";
                 color = "var(--danger)";
                 db.ref('sensor').update({ status: "Spoiled & Harmful" });
@@ -491,12 +506,12 @@
                 <div style="color: ${color}; font-weight: bold; font-size: 1.5rem; margin-bottom: 10px;">🤖 AI VERDICT: ${status}</div>
                 <div style="color: #444; font-size: 1.2rem;">Metrics evaluated at: Temp <b>${latestSensorData.temp}°C</b>, Gas <b>${latestSensorData.gas} ppm</b></div>
                 <div style="font-size: 1rem; color: var(--text-muted); margin-top: 10px;">
-                    (Evaluated against learned AI limits: Gas Limit ${gasLimit.toFixed(0)} | Temp Limit ${tempLimit.toFixed(1)})
+                    (Evaluated against learned AI limits: Gas Limit ${gasLimit.toFixed(0)} | Safe Temp Range: ${tempMin.toFixed(1)}°C - ${tempMax.toFixed(1)}°C)
                 </div>
             `;
         }
 
-        // --- 6. Continuous Monitoring & History ---
+        // --- 6. Continuous Monitoring & Local History Logic ---
         function startContinuousMode() {
             document.getElementById('start-cont-btn').classList.add('hidden');
             document.getElementById('stop-cont-btn').classList.remove('hidden');
@@ -505,10 +520,12 @@
             showToast("Continuous Monitoring Activated");
             
             continuousInterval = setInterval(() => {
-                const gasLimit = (aiState && aiState.thresholds && aiState.thresholds.gas_threshold) ? aiState.thresholds.gas_threshold : 400;
-                const tempLimit = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold) ? aiState.thresholds.temp_threshold : 30;
+                // UPDATED: Fetches exact database variables
+                const gasLimit = (aiState && aiState.thresholds && aiState.thresholds.gas_threshold) ? aiState.thresholds.gas_threshold : 150;
+                const tempMin = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold_min) ? aiState.thresholds.temp_threshold_min : 25;
+                const tempMax = (aiState && aiState.thresholds && aiState.thresholds.temp_threshold_max) ? aiState.thresholds.temp_threshold_max : 35;
 
-                if (latestSensorData.gas > gasLimit || latestSensorData.temp > tempLimit) {
+                if (latestSensorData.gas > gasLimit || latestSensorData.temp < tempMin || latestSensorData.temp > tempMax) {
                     clearInterval(continuousInterval);
                     document.getElementById('cont-status').innerHTML = "🔴 ALERT: SPOILAGE DETECTED!";
                     document.getElementById('start-cont-btn').classList.remove('hidden');
@@ -521,7 +538,7 @@
                         hum: latestSensorData.hum,
                         gas: latestSensorData.gas,
                         status: "Spoiled",
-                        timestamp: new Date().toLocaleString()
+                        timestamp: new Date().toLocaleTimeString() 
                     });
                     
                     showToast("WARNING: Spoilage Detected! Logged to history.", "warning");
@@ -537,29 +554,93 @@
             showToast("Continuous Monitoring Stopped");
         }
 
-        function loadHistoryData() {
-            db.ref('spoiled_history').limitToLast(100).on('value', snapshot => {
-                const tbody = document.getElementById('history-body');
-                tbody.innerHTML = '';
-                
-                if(snapshot.exists()) {
-                    const records = [];
-                    snapshot.forEach(child => { records.unshift(child.val()); });
-                    
-                    records.forEach(data => {
-                        tbody.innerHTML += `
-                            <tr>
-                                <td>${data.timestamp}</td>
-                                <td>${data.temp}</td>
-                                <td>${data.hum}</td>
-                                <td>${data.gas}</td>
-                                <td><span class="badge badge-spoiled">Spoiled</span></td>
-                            </tr>
-                        `;
-                    });
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#999;">No spoilage history found.</td></tr>';
-                }
+        // --- LOCAL HISTORY FUNCTIONS ---
+        function logToLocalHistory() {
+            if (latestSensorData.temp === 0 && latestSensorData.gas === 0) return;
+
+            const timestamp = new Date().toLocaleTimeString();
+            const currentRecord = {
+                time: timestamp,
+                temp: latestSensorData.temp,
+                hum: latestSensorData.hum,
+                gas: latestSensorData.gas,
+                status: latestSensorData.status
+            };
+            
+            localHistory.unshift(currentRecord);
+            if (localHistory.length > MAX_HISTORY) localHistory.pop();
+
+            if (currentRecord.status.toLowerCase().includes('spoil')) {
+                spoiledHistory.unshift(currentRecord);
+                if (spoiledHistory.length > MAX_SPOILED_HISTORY) spoiledHistory.pop();
+            }
+
+            if (showingOnlySpoiled) {
+                renderSpoiledTable();
+            } else {
+                renderHistoryTable();
+            }
+        }
+
+        function renderHistoryTable() {
+            const tbody = document.getElementById('history-body');
+            tbody.innerHTML = '';
+            
+            if (localHistory.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#999;">Waiting for sensor data...</td></tr>';
+                return;
+            }
+
+            localHistory.forEach(record => {
+                let badgeClass = record.status.toLowerCase().includes('spoil') ? 'badge-spoiled' : 'badge-fresh';
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${record.time}</td>
+                        <td>${record.temp}</td>
+                        <td>${record.hum}</td>
+                        <td>${record.gas}</td>
+                        <td><span class="badge ${badgeClass}">${record.status}</span></td>
+                    </tr>
+                `;
+            });
+        }
+
+        function toggleSpoiledView() {
+            showingOnlySpoiled = !showingOnlySpoiled;
+            const btn = document.getElementById('toggle-spoiled-btn');
+            
+            if (showingOnlySpoiled) {
+                btn.innerHTML = '<i class="fas fa-list"></i> Show All History';
+                btn.classList.remove('btn-outline');
+                btn.classList.add('btn-danger');
+                renderSpoiledTable();
+            } else {
+                btn.innerHTML = '<i class="fas fa-filter"></i> Show Spoiled Only';
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-outline');
+                renderHistoryTable();
+            }
+        }
+
+        function renderSpoiledTable() {
+            const tbody = document.getElementById('history-body');
+            tbody.innerHTML = '';
+            
+            if (spoiledHistory.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#999;">No spoiled readings recorded yet!</td></tr>';
+                return;
+            }
+
+            spoiledHistory.forEach(record => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${record.time}</td>
+                        <td>${record.temp}</td>
+                        <td>${record.hum}</td>
+                        <td>${record.gas}</td>
+                        <td><span class="badge badge-spoiled">${record.status}</span></td>
+                    </tr>
+                `;
             });
         }
 
